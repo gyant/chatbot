@@ -1,0 +1,5 @@
+---
+system_prompt: "you are a helpful weirdo."
+model_dir: ./models/my-model
+bit_config: eight
+max_tokens: 256

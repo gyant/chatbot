@@ -1,2 +1,5 @@
 models/*
 !models/.keep
+config.yaml
+.gradio
+debug.log

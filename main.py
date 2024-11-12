@@ -1,33 +1,78 @@
 import torch
 import gradio as gr
+import yaml
 
-from transformers import LlamaForCausalLM, LlamaTokenizer, AutoModel, AutoTokenizer, Conversation, pipeline
+from transformers import LlamaForCausalLM, LlamaTokenizer, AutoModel, AutoModelForCausalLM, AutoTokenizer, pipeline, BitsAndBytesConfig
 
-model_dir = ".models/Llama-3-8B-Lexi-Uncensored"
+with open("config.yaml", "r") as file:
+    config = yaml.safe_load(file)
 
-model = LlamaForCausalLM.from_pretrained(model_dir)
+model_dir = config["model_dir"]
+max_tokens = config["max_tokens"]
+
+four_bit_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_compute_dtype=torch.bfloat16,
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_quant_type="nf4"
+)
+
+eight_bit_config = BitsAndBytesConfig(
+    load_in_8bit=True,
+    bnb_8bit_compute_dtype=torch.bfloat16,
+    bnb_8bit_use_double_quant=True,
+    bnb_8bit_quant_type="nf4"
+)
+
+sixteen_bit_config = BitsAndBytesConfig(
+    load_in_16bit=True,
+    bnb_16bit_compute_dtype=torch.float16,
+    bnb_16bit_use_double_quant=True,
+    bnb_16bit_quant_type="nf4"
+)
+
+if config["bit_config"] == "four":
+    bit_config = four_bit_config
+elif config["bit_config"] == "eight":
+    bit_config = eight_bit_config
+elif config["bit_config"] == "sixteen":
+    bit_config = sixteen_bit_config
+else:
+    bit_config = None
+
+model = AutoModelForCausalLM.from_pretrained(model_dir, device_map = "auto", torch_dtype=torch.bfloat16, quantization_config=bit_config)
+
 tokenizer = AutoTokenizer.from_pretrained(model_dir)
 
-chatbot = pipeline('conversational', model=model, tokenizer=tokenizer,torch_dtype=torch.float32)
+chatbot = pipeline("text-generation", model=model, tokenizer=tokenizer)
+
+# Initialize conversation history
+conversation_history = [{"role": "system", "content": config["system_prompt"]}]
 
 # Initialize a Conversation object
-conversation = Conversation("You are a 19 year old woman with a foul mouth, high sex drive, blonde hair, blue eyes, small breasts, and stunningly beautiful. You are confident in your appearance. You like to put up a front of being a prude but secretly you're a total slut. You know about cum walking which is going out in public with cum on your face. You have a kink about cheating on your partners and it's hard to resist letting your inhibitions fly with strangers. However you do love your boyfriend and will do everything to prevent him from learning about your indescretions. The user you're talking to is your boyfriend of 5 years. You're currently not cheating on him. Your boyfriend is currently away on a work trip. Last night you were cheating on your boyfriend with dominant man who made you talk to your boyfriend on the phone while you were having sex. You did your best to cover it as a standard phone sex session but you suspect your boyfriend might know what you did.")
+response = chatbot(conversation_history, max_new_tokens=max_tokens)
 print("Please wait while the model is loading...")
-response = chatbot([conversation])
+
 print("---\nResponse:\n\n")
-print(response)
+print(response[0]["generated_text"][-1]["content"])
 print("\n---")
+
 print("Model is ready!")
 
 def vanilla_chatbot(message, history):
-    # Add the new user input to the conversation
-    conversation.add_user_input(message)
+    # Add the new user input to the conversation history
+    conversation_history.append({ "role": "user", "content": message})
 
     # Generate a response
-    response = chatbot([conversation])
+    response = chatbot(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
 
-    return response.generated_responses[-1]
+    # Add the response to the conversation history
+    bot_response = response[0]["generated_text"][-1]
 
-demo_chatbot = gr.ChatInterface(vanilla_chatbot, title="Vanilla Chatbot", description="Enter text to start chatting")
+    conversation_history.append(bot_response)
 
-demo_chatbot.launch(server_name="0.0.0.0")
+    return bot_response
+
+demo_chatbot = gr.ChatInterface(vanilla_chatbot, type="messages", title="Vanilla Chatbot", description="Enter text to start chatting")
+
+demo_chatbot.launch(server_name="0.0.0.0", share=False)
