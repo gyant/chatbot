@@ -9,6 +9,7 @@ with open("config.yaml", "r") as file:
 
 model_dir = config["model_dir"]
 max_tokens = config["max_tokens"]
+max_message_history = config["max_message_history"]
 
 four_bit_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -60,8 +61,15 @@ print("\n---")
 print("Model is ready!")
 
 def vanilla_chatbot(message, history):
+    global conversation_history
+
     # Add the new user input to the conversation history
     conversation_history.append({ "role": "user", "content": message})
+
+    # Truncate the conversation history if it exceeds max_message_history
+    if len(conversation_history) > max_message_history:
+        # Keep the system prompt and the last 19 messages
+        conversation_history = [conversation_history[0]] + conversation_history[-(len(max_message_history) - 1):]
 
     # Generate a response
     response = chatbot(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
