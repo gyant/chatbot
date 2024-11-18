@@ -3,3 +3,5 @@ models/*
 config.yaml
 .gradio
 debug.log
+.DS_Store
+__pycache__ 
