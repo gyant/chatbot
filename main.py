@@ -20,16 +20,6 @@ four_bit_config = BitsAndBytesConfig(
 
 eight_bit_config = BitsAndBytesConfig(
     load_in_8bit=True,
-    bnb_8bit_compute_dtype=torch.bfloat16,
-    bnb_8bit_use_double_quant=True,
-    bnb_8bit_quant_type="nf4"
-)
-
-sixteen_bit_config = BitsAndBytesConfig(
-    load_in_16bit=True,
-    bnb_16bit_compute_dtype=torch.float16,
-    bnb_16bit_use_double_quant=True,
-    bnb_16bit_quant_type="nf4"
 )
 
 if config["bit_config"] == "four":
@@ -37,7 +27,7 @@ if config["bit_config"] == "four":
 elif config["bit_config"] == "eight":
     bit_config = eight_bit_config
 elif config["bit_config"] == "sixteen":
-    bit_config = sixteen_bit_config
+    bit_config = None
 else:
     bit_config = None
 
@@ -48,7 +38,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_dir)
 chatbot = pipeline("text-generation", model=model, tokenizer=tokenizer)
 
 # Initialize conversation history
-conversation_history = [{"role": "system", "content": config["system_prompt"]}]
+conversation_history = [{"role": config["system_prompt_key"], "content": config["system_prompt"]}]
 
 # Initialize a Conversation object
 response = chatbot(conversation_history, max_new_tokens=max_tokens)
@@ -69,7 +59,7 @@ def vanilla_chatbot(message, history):
     # Truncate the conversation history if it exceeds max_message_history
     if len(conversation_history) > max_message_history:
         # Keep the system prompt and the last 19 messages
-        conversation_history = [conversation_history[0]] + conversation_history[-(len(max_message_history) - 1):]
+        conversation_history = [conversation_history[0]] + conversation_history[-(max_message_history - 1):]
 
     # Generate a response
     response = chatbot(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
