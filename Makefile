@@ -1,5 +1,5 @@
 build:
-	docker build --tag pytorch:gpu .
+	docker build --platform linux/amd64 --tag pytorch:gpu .
 
 build-cpu:
 	docker build --tag pytorch:cpu -f Dockerfile.cpu .

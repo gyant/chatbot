@@ -1,6 +1,7 @@
 import torch
 import gradio as gr
 import yaml
+import re
 
 from transformers import LlamaForCausalLM, LlamaTokenizer, AutoModel, AutoModelForCausalLM, AutoTokenizer, pipeline, BitsAndBytesConfig
 
@@ -52,23 +53,33 @@ print("Model is ready!")
 
 def vanilla_chatbot(message, history):
     global conversation_history
-
+    
     # Add the new user input to the conversation history
     conversation_history.append({ "role": "user", "content": message})
-
+    
     # Truncate the conversation history if it exceeds max_message_history
     if len(conversation_history) > max_message_history:
         # Keep the system prompt and the last 19 messages
         conversation_history = [conversation_history[0]] + conversation_history[-(max_message_history - 1):]
-
+    
     # Generate a response
     response = chatbot(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
-
-    # Add the response to the conversation history
-    bot_response = response[0]["generated_text"][-1]
-
+    
+    # Get the raw response text
+    raw_response = response[0]["generated_text"][-1]
+    
+    # Clean the response using regex to remove thinking information
+    thinking_pattern = r'[`\s]*[\[\<]think[\>\]](.*?)[\[\<]\/think[\>\]][`\s]*|^[`\s]*([\[\<]thinking[\>\]][`\s]*.*$)'
+    cleaned_response = re.sub(thinking_pattern, '', raw_response['content'], flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+    
+    # Create the bot response object with the correct structure
+    bot_response = {
+        "role": "assistant",
+        "content": cleaned_response.strip()
+    }
+    
     conversation_history.append(bot_response)
-
+    
     return bot_response
 
 demo_chatbot = gr.ChatInterface(vanilla_chatbot, type="messages", title="Vanilla Chatbot", description="Enter text to start chatting")
