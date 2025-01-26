@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: chatbot-cert
+  namespace: chatbot
+spec:
+  secretName: chatbot-tls
+  issuerRef:
+    name: ca-issuer
+    kind: ClusterIssuer
+    group: cert-manager.io
+  dnsNames:
+  - chatbot.gyant.internal

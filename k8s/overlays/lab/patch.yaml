@@ -1,0 +1,33 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chatbot
+  namespace: chatbot
+spec:
+  template:
+    metadata:
+      labels:
+        app: chatbot
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: pegasus
+      containers:
+      - name: chatbot
+        image: registry.gyant.internal/chatbot:latest
+        imagePullPolicy: Always
+        command: ["sleep", "infinity"]
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+          requests:
+            nvidia.com/gpu: 1
+        volumeMounts:
+        - name: models-volume
+          mountPath: /data/models
+          readOnly: true
+      volumes:
+      - name: models-volume
+        persistentVolumeClaim:
+          claimName: models-pvc

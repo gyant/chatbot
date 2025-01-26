@@ -1,0 +1,24 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: chatbot
+  namespace: chatbot
+  annotations:
+    kubernetes.io/ingress.class: traefik  # Changed from nginx to traefik
+spec:
+  tls:
+  - hosts:
+    - chatbot.gyant.internal
+    secretName: chatbot-tls
+  rules:
+  - host: chatbot.gyant.internal
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: chatbot
+            port:
+              number: 7860
