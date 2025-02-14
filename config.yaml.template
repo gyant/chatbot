@@ -2,6 +2,16 @@
 system_prompt: "you are a helpful weirdo."
 system_prompt_key: "system"
 model_dir: ./models/my-model
-bit_config: eight
 max_tokens: 256
+model_type: "transformers"
+
+## transformers
 max_message_history: 20
+bit_config: eight
+
+## GGUF
+n_ctx: 2048
+n_threads: 4
+temperature: 0.7
+n_gpu_layers: -1    # -1 for all layers, or specific number like 35
+main_gpu: 0         # GPU device index to use
