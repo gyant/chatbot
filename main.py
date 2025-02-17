@@ -64,6 +64,12 @@ else:
 # Initialize conversation history
 conversation_history = [{"role": config["system_prompt_key"], "content": config["system_prompt"]}]
 
+# Remove thinking pattern from response in deepseek style models
+THINKING_PATTERN = re.compile(
+    r'[`\s]*[\[\<]think[\>\]](.*?)[\[\<]\/think[\>\]][`\s]*|^[`\s]*([\[\<]thinking[\>\]][`\s]*.*$)',
+    flags=re.IGNORECASE | re.MULTILINE | re.DOTALL
+)
+
 # Initialize a Conversation object
 if model_type == "gguf":
     response = model.create_chat_completion(
@@ -90,9 +96,6 @@ def vanilla_chatbot(message, history):
     # Add the new user input to the conversation history
     conversation_history.append({"role": "user", "content": message})
 
-    # Remove thinking pattern from response in deepseek style models
-    thinking_pattern = r'[`\s]*[\[\<]think[\>\]](.*?)[\[\<]\/think[\>\]][`\s]*|^[`\s]*([\[\<]thinking[\>\]][`\s]*.*$)'
-
     if model_type == "gguf":
         # Let the model handle context window management
         response = model.create_chat_completion(
@@ -105,29 +108,29 @@ def vanilla_chatbot(message, history):
         if verbose:
             print(f"Raw response:\n\n{raw_response}\n\n")
 
-        cleaned_response = re.sub(thinking_pattern, '', raw_response, 
-                                flags=re.IGNORECASE | re.MULTILINE | re.DOTALL).strip()
-    else:
-        # Truncate history for transformers models
-        if len(conversation_history) > max_message_history:
-            conversation_history = [conversation_history[0]] + conversation_history[-(max_message_history - 1):]
-            
+        cleaned_response = THINKING_PATTERN.sub('', raw_response).strip()
+   
+    else:   
         # Original SafeTensor generation
         response = text_generator(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
         raw_response = response[0]["generated_text"][-1]
 
         if verbose:
             print(f"Raw response:\n\n{raw_response}\n\n")
-        
-        cleaned_response = re.sub(thinking_pattern, '', raw_response['content'], 
-                                flags=re.IGNORECASE | re.MULTILINE | re.DOTALL).strip()
+    
+        cleaned_response = THINKING_PATTERN.sub('', raw_response["content"]).strip()
     
     # Create and append bot response
     bot_response = {
         "role": "assistant",
         "content": cleaned_response
     }
+
     conversation_history.append(bot_response)
+
+    # Truncate history for transformers models
+    if len(conversation_history) > max_message_history:
+        conversation_history = [conversation_history[0]] + conversation_history[-(max_message_history - 1):]
     
     return bot_response
 
