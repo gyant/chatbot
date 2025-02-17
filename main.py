@@ -2,8 +2,8 @@ import torch
 import gradio as gr
 import yaml
 import re
-
-from transformers import LlamaForCausalLM, LlamaTokenizer, AutoModel, AutoModelForCausalLM, AutoTokenizer, pipeline, BitsAndBytesConfig
+from llama_cpp import Llama
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline, BitsAndBytesConfig
 
 with open("config.yaml", "r") as file:
     config = yaml.safe_load(file)
@@ -11,6 +11,13 @@ with open("config.yaml", "r") as file:
 model_dir = config["model_dir"]
 max_tokens = config["max_tokens"]
 max_message_history = config["max_message_history"]
+model_type = config.get("model_type", "transformers")
+n_ctx = config.get("n_ctx", 2048)
+n_threads = config.get("n_threads", 4)
+temperature = config.get("temperature", 0.7)
+listen_host = config.get("listen_host", "0.0.0.0")
+listen_port = config.get("listen_port", 7860)
+verbose = config.get("verbose", False)
 
 four_bit_config = BitsAndBytesConfig(
     load_in_4bit=True,
@@ -32,21 +39,47 @@ elif config["bit_config"] == "sixteen":
 else:
     bit_config = None
 
-model = AutoModelForCausalLM.from_pretrained(model_dir, device_map = "auto", torch_dtype=torch.bfloat16, quantization_config=bit_config)
-
-tokenizer = AutoTokenizer.from_pretrained(model_dir)
-
-chatbot = pipeline("text-generation", model=model, tokenizer=tokenizer)
+# Initialize model based on type
+if model_type == "gguf":
+    # GGUF model initialization with GPU support
+    model = Llama(
+        model_path=model_dir,
+        n_ctx=n_ctx,
+        n_threads=n_threads,
+        n_gpu_layers=-1,  # Use all layers on GPU (-1) or specify number of layers
+        main_gpu=0,       # Main GPU device to use (0 = first GPU)
+        tensor_split=None  # Optional: Split layers across multiple GPUs
+    )
+else:
+    # Original SafeTensor initialization
+    model = AutoModelForCausalLM.from_pretrained(
+        model_dir, 
+        device_map="auto", 
+        torch_dtype=torch.bfloat16, 
+        quantization_config=bit_config
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_dir)
+    text_generator = pipeline("text-generation", model=model, tokenizer=tokenizer)
 
 # Initialize conversation history
 conversation_history = [{"role": config["system_prompt_key"], "content": config["system_prompt"]}]
 
 # Initialize a Conversation object
-response = chatbot(conversation_history, max_new_tokens=max_tokens)
-print("Please wait while the model is loading...")
+if model_type == "gguf":
+    response = model.create_chat_completion(
+        messages=conversation_history,
+        max_tokens=max_tokens,
+        temperature=temperature
+    )
+    print("Please wait while the model is loading...")
+    print("---\nResponse:\n\n")
+    print(response["choices"][0]["message"]["content"])
+else:
+    response = text_generator(conversation_history, max_new_tokens=max_tokens)
+    print("Please wait while the model is loading...")
+    print("---\nResponse:\n\n")
+    print(response[0]["generated_text"][-1]["content"])
 
-print("---\nResponse:\n\n")
-print(response[0]["generated_text"][-1]["content"])
 print("\n---")
 
 print("Model is ready!")
@@ -55,33 +88,49 @@ def vanilla_chatbot(message, history):
     global conversation_history
     
     # Add the new user input to the conversation history
-    conversation_history.append({ "role": "user", "content": message})
-    
-    # Truncate the conversation history if it exceeds max_message_history
-    if len(conversation_history) > max_message_history:
-        # Keep the system prompt and the last 19 messages
-        conversation_history = [conversation_history[0]] + conversation_history[-(max_message_history - 1):]
-    
-    # Generate a response
-    response = chatbot(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
-    
-    # Get the raw response text
-    raw_response = response[0]["generated_text"][-1]
-    
-    # Clean the response using regex to remove thinking information
+    conversation_history.append({"role": "user", "content": message})
+
+    # Remove thinking pattern from response in deepseek style models
     thinking_pattern = r'[`\s]*[\[\<]think[\>\]](.*?)[\[\<]\/think[\>\]][`\s]*|^[`\s]*([\[\<]thinking[\>\]][`\s]*.*$)'
-    cleaned_response = re.sub(thinking_pattern, '', raw_response['content'], flags=re.IGNORECASE | re.MULTILINE | re.DOTALL)
+
+    if model_type == "gguf":
+        # Let the model handle context window management
+        response = model.create_chat_completion(
+            messages=[{"role": m["role"], "content": m["content"]} for m in conversation_history],
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        raw_response = response["choices"][0]["message"]["content"]
+
+        if verbose:
+            print(f"Raw response:\n\n{raw_response}\n\n")
+
+        cleaned_response = re.sub(thinking_pattern, '', raw_response, 
+                                flags=re.IGNORECASE | re.MULTILINE | re.DOTALL).strip()
+    else:
+        # Truncate history for transformers models
+        if len(conversation_history) > max_message_history:
+            conversation_history = [conversation_history[0]] + conversation_history[-(max_message_history - 1):]
+            
+        # Original SafeTensor generation
+        response = text_generator(conversation_history, max_new_tokens=max_tokens, num_return_sequences=1)
+        raw_response = response[0]["generated_text"][-1]
+
+        if verbose:
+            print(f"Raw response:\n\n{raw_response}\n\n")
+        
+        cleaned_response = re.sub(thinking_pattern, '', raw_response['content'], 
+                                flags=re.IGNORECASE | re.MULTILINE | re.DOTALL).strip()
     
-    # Create the bot response object with the correct structure
+    # Create and append bot response
     bot_response = {
         "role": "assistant",
-        "content": cleaned_response.strip()
+        "content": cleaned_response
     }
-    
     conversation_history.append(bot_response)
     
     return bot_response
 
-demo_chatbot = gr.ChatInterface(vanilla_chatbot, type="messages", title="Vanilla Chatbot", description="Enter text to start chatting")
+chat_interface = gr.ChatInterface(vanilla_chatbot, type="messages", title="Vanilla Chatbot", description="Enter text to start chatting")
 
-demo_chatbot.launch(server_name="0.0.0.0", share=False)
+chat_interface.launch(server_name=listen_host, server_port=listen_port, share=False)
